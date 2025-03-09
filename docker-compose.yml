@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  producer:
+    build:
+      context: .
+      dockerfile: cmd/producer/Dockerfile
+    ports:
+      - "8080:8080"
+    depends_on:
+      - rabbitmq
+      - postgres
+      - elasticsearch
+      - kibana
+    environment:
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      DATABASE_URL: "postgres://myuser:mypassword@postgres:5432/celery_tasks?sslmode=disable"
+      ELASTICSEARCH_URL: "http://elasticsearch:9200"
+
+  postgres:
+    image: "postgres:15"
+    container_name: postgres
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: myuser
+      POSTGRES_PASSWORD: mypassword
+      POSTGRES_DB: celery_tasks
+    volumes:
+      - postgres_data:/var/lib/postgresql/data    
+
+  worker:
+    build:
+      context: .
+      dockerfile: cmd/worker/Dockerfile
+    depends_on:
+      - rabbitmq
+      - postgres
+      - elasticsearch
+      - kibana
+    environment:
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      DATABASE_URL: "postgres://myuser:mypassword@postgres:5432/celery_tasks?sslmode=disable"
+      WORKER_NAME: "worker_vikas-{{.Task.Slot}}"
+      ELASTICSEARCH_URL: "http://elasticsearch:9200"
+    deploy:
+      replicas: 3 # create 3 worker instances  
+
+  rabbitmq:
+    image: "rabbitmq:3-management"
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.4  # Official Elasticsearch Docker image
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node  # Single-node setup
+      - ES_JAVA_OPTS=-Xmx1g -Xms1g  # Set heap size
+      - ELASTIC_PASSWORD=changeme  # Set the password for the elastic user
+    ports:
+      - "9200:9200"  # Expose Elasticsearch port
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data  # Persistent data storage  
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.4  # Official Kibana Docker image
+    container_name: kibana
+    environment:
+      - ELASTICSEARCH_URL=http://elasticsearch:9200  # Kibana to connect to Elasticsearch
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200  # Kibana URL for Elasticsearch
+      - ELASTICSEARCH_USERNAME=elastic  # Username for Elasticsearch
+      - ELASTICSEARCH_PASSWORD=changeme  # Password for Elasticsearch
+    ports:
+      - "5601:5601"  # Expose Kibana on port 5601
+    depends_on:
+      - elasticsearch      
+
+volumes:
+  postgres_data:
+  elasticsearch-data:      
